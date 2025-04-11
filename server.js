@@ -12,9 +12,12 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-    const ACCESS_TOKEN = '1000.fa3a2cd1668c7e5bd655fda18b099901.b05c737fac8cf205d210441f24db8dbc'; // Use env var in production
+const ACCESS_TOKEN = '1000.fa3a2cd1668c7e5bd655fda18b099901.b05c737fac8cf205d210441f24db8dbc'; // Use env var in production
 
+app.get('/',async (req, res)=>{
 
+res.send("server is up 🚀🚀🚀");
+})
 
 
 
