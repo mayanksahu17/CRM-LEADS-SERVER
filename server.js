@@ -70,25 +70,34 @@ res.send("server is up 🚀🚀🚀");
 
 
 
+
 app.post('/api/v1/submit-lead/crm', async (req, res) => {
+  const lead = req.body.data?.[0];
+
+  if (!lead) {
+    return res.status(400).json({ error: 'Invalid data format' });
+  }
+
   const leadPayload = {
     data: [
       {
-        Last_Name: req.body.name || "Anonymous",
-        First_Name: req.body.firstName || "Unknown",
-        Email: req.body.email,
-        Phone: req.body.phone,
-        Company: req.body.companyName,
-        City: req.body.location,
-        Description: `Business Type: ${req.body.businessType}, Accepts Cards: ${req.body.acceptsCards}`,
-        Lead_Source: "Website Form"
+        Last_Name: lead.Last_Name || "Unknown",
+        Email: lead.Email,
+        Phone: lead.Phone,
+        Company: lead.Company,
+        City: lead.City,
+        Description: lead.Description,
+        Lead_Source: lead.Lead_Source
       }
     ]
   };
 
-  try {
-    const token = await getAccessToken(); // ⬅️ use refreshed token here
+  console.log("Lead Payload:", leadPayload);
 
+  try {
+    const token = await getAccessToken();
+
+    // Send to Zoho API 
     const response = await fetch('https://www.zohoapis.com/crm/v2/Leads', {
       method: 'POST',
       headers: {
@@ -99,12 +108,16 @@ app.post('/api/v1/submit-lead/crm', async (req, res) => {
     });
 
     const result = await response.json();
-    res.status(response.status).json(result);
+
+   
+
+    res.status(200).json(result);
   } catch (err) {
     console.error("Zoho API Error:", err);
     res.status(500).json({ error: 'Something went wrong.' });
   }
 });
+
 
 
 
