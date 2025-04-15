@@ -13,7 +13,7 @@ jobs:
       - name: ⏳ Wait for EC2 to respond
         run: |
           echo "Pinging EC2 instance..."
-          ping -c 3 ${{ secrets.EC2_HOST }} || echo "Ping failed — continuing anyway"
+          ping -c 3 ${{ secrets.EC2_HOST }}
 
       - name: 🚀 Deploy via SSH
         uses: appleboy/ssh-action@v0.1.10
@@ -29,10 +29,14 @@ jobs:
             git pull origin main
 
             echo "📦 Installing dependencies..."
-            npm install
+            npm ci
 
             echo "♻️ Restarting server with PM2..."
-            pm2 restart all || pm2 start server.js --name crm-server
+            if pm2 list | grep -q crm-server; then
+              pm2 restart crm-server
+            else
+              pm2 start server.js --name crm-server
+            fi
 
             echo "💾 Saving PM2 process list..."
             pm2 save
