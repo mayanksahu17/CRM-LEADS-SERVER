@@ -118,6 +118,38 @@ app.post('/api/v1/submit-lead/crm', async (req, res) => {
   }
 });
 
+app.get('/api/v1/verify_number', async (req, res) => {
+  const number = req.query.number ;
+  const countryCode = req.query.countryCode ;
+  const apiKey = process.env.NUMVERIFY_ACCESS_TOKEN;
+
+  if (!number || !countryCode) {
+    return res.status(400).json({ error: "Missing number or countryCode" });
+  }
+
+  const url = `https://apilayer.net/api/validate?access_key=${apiKey}&number=${number}&country_code=${countryCode}`;
+
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    console.log("API Response:", data);
+    
+    if (data.valid) {
+      res.status(200).json({
+        valid: true,
+        carrier: data.carrier,
+        location: data.location,
+        number: data.international_format,
+        line_type: data.line_type,
+      });
+    } else {
+      res.status(400).json({ valid: false });
+    }
+  } catch (error) {
+    console.error("Error verifying number:", error);
+    res.status(500).json({ error: 'Failed to verify number' });
+  }
+});
 
 
 
