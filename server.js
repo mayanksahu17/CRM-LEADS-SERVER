@@ -5,13 +5,23 @@ const ExcelJS = require('exceljs');
 const cors = require('cors');
 const cron = require('node-cron');
 const fetch = require('node-fetch');
+const Stripe = require('stripe')
+const bcrypt = require("bcryptjs");
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} from Origin: ${req.headers.origin}`);
+  next();
+});
+const secrete = "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"
+
+
 const PORT = process.env.PORT || 5000;
 
 
+const stripe = Stripe(secrete); // Make sure this env var exists
 
 
 // use the refresh token 
@@ -56,7 +66,7 @@ let accessTokenExpiry = 0; // Unix timestamp
   return currentAccessToken;
 };
 
-
+  
 
 
 
@@ -151,6 +161,76 @@ app.get('/api/v1/verify_number', async (req, res) => {
   }
 });
 
+
+// New Route: Form + Stripe Checkout Integration 🔥
+app.post('/api/v1/submit-lead-and-checkout', async (req, res) => {
+  // const { name, email, phone, companyName, location, businessType, acceptsCards } = req.body;
+  const lead = req.body.data?.[0];
+
+  // if (!email || !name || !phone) {
+  //   return res.status(400).json({ error: "Missing required fields" });
+  // }
+
+  try {
+    const token = await getAccessToken();
+    const leadPayload = {
+      data: [
+        {
+          Last_Name: lead.Last_Name || "Unknown",
+          Email: lead.Email,
+          Phone: lead.Phone,
+          Company: lead.Company,
+          City: lead.City,
+          Description: lead.Description,
+          Lead_Source: lead.Lead_Source
+        }
+      ]
+    };
+
+    const crmResponse = await fetch('https://www.zohoapis.com/crm/v2/Leads', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(leadPayload),
+    });
+
+    const crmData = await crmResponse.json();
+    if (!crmData?.data?.[0]?.code || crmData.data[0].code !== "SUCCESS") {
+      console.error("CRM Error:", crmData);
+      return res.status(500).json({ error: 'Failed to submit lead to CRM' });
+    }
+
+    // Create Stripe Checkout Session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'ZifyPay $1 Demo Booking',
+            },
+            unit_amount: 100, // $1
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      success_url: 'https://pos.zifypay.com/thankyou', // after success
+      cancel_url: 'https://pos.zifypay.com/', // on cancel
+      metadata: {
+        email : lead.Email,
+      }
+    });
+
+    return res.status(200).json({ checkoutUrl: session.url });
+  } catch (err) {
+    console.error("Error during submit-lead-and-checkout:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 
 // Ping your own server every 5 minutes to keep it awake
