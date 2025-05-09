@@ -12,6 +12,14 @@ const fs = require("fs");
 const path = require("path");
 const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
 
+
+// Add this route to handle Excel file uploads and data processing
+const multer = require('multer');
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
+
+
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -168,6 +176,26 @@ app.get('/api/v1/verify_number', async (req, res) => {
 });
 
 
+
+app.get("/api/entries", (req, res) => {
+  try {
+    const filePath = path.join(__dirname, "data.xlsx");
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "Excel file not found." });
+    }
+
+    const workbook = XLSX.readFile(filePath);
+    const worksheet = workbook.Sheets["Sheet1"];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    res.status(200).json({ entries: data });
+  } catch (err) {
+    console.error("❌ Error fetching entries:", err);
+    res.status(500).json({ error: "Failed to get entries." });
+  }
+});
+
+
 // New Route: Form + Stripe Checkout Integration 🔥
 app.post('/api/v1/submit-lead-and-checkout', async (req, res) => {
   // const { name, email, phone, companyName, location, businessType, acceptsCards } = req.body;
@@ -250,11 +278,9 @@ cron.schedule('*/5 * * * *', async () => {
 });
 
 
-
-
-// Add new entry to data.xlsx
+// Updated add-entry API to include Amount field
 app.post("/api/add-entry", async (req, res) => {
-  const { name, email, insuranceNumber, address, number } = req.body;
+  const { name, email, insuranceNumber, address, number, amount, userId } = req.body;
 
   try {
     const filePath = path.join(__dirname, "data.xlsx");
@@ -266,7 +292,7 @@ app.post("/api/add-entry", async (req, res) => {
       worksheet = workbook.Sheets["Sheet1"];
     } else {
       workbook = XLSX.utils.book_new();
-      worksheet = XLSX.utils.aoa_to_sheet([["Name", "Email", "InsuranceNumber", "Address", "Number"]]);
+      worksheet = XLSX.utils.aoa_to_sheet([["Name", "Email", "InsuranceNumber", "Address", "Number", "Amount", "UserId"]]);
       XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
     }
 
@@ -279,8 +305,20 @@ app.post("/api/add-entry", async (req, res) => {
     }
 
     // Append new row
-    data.push({ Name: name, Email: email, InsuranceNumber: insuranceNumber, Address: address, Number: number });
-    const newSheet = XLSX.utils.json_to_sheet(data, { header: ["Name", "Email", "InsuranceNumber", "Address", "Number"] });
+    data.push({ 
+      Name: name, 
+      Email: email, 
+      InsuranceNumber: insuranceNumber, 
+      Address: address, 
+      Number: number,
+      Amount: amount || 0,
+      UserId: userId || ''
+    });
+    
+    const newSheet = XLSX.utils.json_to_sheet(data, { 
+      header: ["Name", "Email", "InsuranceNumber", "Address", "Number", "Amount", "UserId"] 
+    });
+    
     workbook.Sheets["Sheet1"] = newSheet;
     XLSX.writeFile(workbook, filePath);
 
@@ -291,6 +329,7 @@ app.post("/api/add-entry", async (req, res) => {
   }
 });
 
+// Updated generate-certificate API to include Amount
 app.post("/api/generate-certificate", async (req, res) => {
   const { insuranceNumber } = req.body;
   const stepLogs = [];
@@ -324,7 +363,7 @@ app.post("/api/generate-certificate", async (req, res) => {
       return res.status(403).json({ error: "No matching insurance record found.", logs: stepLogs });
     }
 
-    const { Name: name, Email: email, Address: address, Number: number } = match;
+    const { Name: name, Email: email, Address: address, Number: number, Amount: amount, UserId: userId } = match;
     stepLogs.push(`✅ Record found for: ${name}`);
 
     // Load and modify PDF
@@ -348,16 +387,14 @@ app.post("/api/generate-certificate", async (req, res) => {
     const lastPage = pages[pages.length - 1];
     stepLogs.push("🖋️ Drawing user info on the certificate...");
 
-
     // calculate the coverage period for one year from now so it will valid for one year from issue date
     const today = new Date();
     const yearFromNow = new Date(today.setFullYear(today.getFullYear() + 1));
-    const month = yearFromNow.toLocaleString("default", { month: "long" });
-    const year = yearFromNow.getFullYear();
-    const day = yearFromNow.getDate();
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const monthIndex = yearFromNow.getMonth();
     const monthName = monthNames[monthIndex];
+    const day = yearFromNow.getDate();
+    const year = yearFromNow.getFullYear();
     const daySuffix = (day) => {
       if (day > 3 && day < 21) return 'th';
       switch (day % 10) {
@@ -374,9 +411,12 @@ app.post("/api/generate-certificate", async (req, res) => {
     lastPage.drawText(`${name}`, { x: 320, y: 2450, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${number}`, { x: 320, y: 2390, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${email}`, { x: 320, y: 2340, size: 25, font, color: rgb(0, 0, 0) });
-    lastPage.drawText(`${address}`, { x: 320, y: 2280, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${address}`, { x: 320, y: 2280, size: 18, font, color: rgb(0, 0, 0) });
 
-    // lastPage.drawText(`${number}`, { x: 1200, y: 2540, size: 50, font, color: rgb(0, 0, 0) });
+    // Display the amount with proper formatting
+    const formattedAmount = amount ? `$${amount}` : "$0";
+    lastPage.drawText(`Invested Amount:           ${formattedAmount}`, { x: 75, y: 1775, size: 23, font, color: rgb(0, 0, 0) });
+
     lastPage.drawText(`${CoveragePeriod}`, { x: 330, y: 1740, size: 25, font, color: rgb(0, 0, 0) });
 
     stepLogs.push("✅ Certificate data injected. Saving PDF in memory...");
@@ -394,43 +434,10 @@ app.post("/api/generate-certificate", async (req, res) => {
   }
 });
 
-
-app.get("/api/entries", (req, res) => {
-  try {
-    const filePath = path.join(__dirname, "data.xlsx");
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "Excel file not found." });
-    }
-
-    const workbook = XLSX.readFile(filePath);
-    const worksheet = workbook.Sheets["Sheet1"];
-    const data = XLSX.utils.sheet_to_json(worksheet);
-
-    res.status(200).json({ entries: data });
-  } catch (err) {
-    console.error("❌ Error fetching entries:", err);
-    res.status(500).json({ error: "Failed to get entries." });
-  }
-});
-
-// make a route that returns the certificate_template.pdf that is in root directory
-app.get("/api/template", (req, res) => {
-  const filePath = path.join(__dirname, "certificate_template.pdf");
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: "Template file not found." });
-  }
-  res.download(filePath, "certificate_template.pdf", (err) => {
-    if (err) {
-      console.error("❌ Error downloading template:", err);
-      res.status(500).json({ error: "Failed to download template." });
-    }
-  }
-  );});
-
-
+// Updated edit-entry API to include Amount field
 app.put("/api/edit-entry/:insuranceNumber", (req, res) => {
   const insuranceNumber = req.params.insuranceNumber;
-  const { name, email, address, number } = req.body;
+  const { name, email, address, number, amount, userId } = req.body;
 
   try {
     const filePath = path.join(__dirname, "data.xlsx");
@@ -448,10 +455,15 @@ app.put("/api/edit-entry/:insuranceNumber", (req, res) => {
       Email: email,
       InsuranceNumber: insuranceNumber,
       Address: address,
-      Number: number
+      Number: number,
+      Amount: amount !== undefined ? amount : (data[index].Amount || 0),
+      UserId: userId !== undefined ? userId : (data[index].UserId || '')
     };
 
-    const updatedSheet = XLSX.utils.json_to_sheet(data, { header: ["Name", "Email", "InsuranceNumber", "Address", "Number"] });
+    const updatedSheet = XLSX.utils.json_to_sheet(data, { 
+      header: ["Name", "Email", "InsuranceNumber", "Address", "Number", "Amount", "UserId"] 
+    });
+    
     workbook.Sheets["Sheet1"] = updatedSheet;
     XLSX.writeFile(workbook, filePath);
 
@@ -461,7 +473,6 @@ app.put("/api/edit-entry/:insuranceNumber", (req, res) => {
     res.status(500).json({ error: "Failed to update entry." });
   }
 });
-
 app.delete("/api/delete-entry/:insuranceNumber", (req, res) => {
   const insuranceNumber = req.params.insuranceNumber;
 
@@ -488,6 +499,218 @@ app.delete("/api/delete-entry/:insuranceNumber", (req, res) => {
   }
 });
 
+
+
+
+
+app.post("/api/upload-excel", upload.single('file'), async (req, res) => {
+  const stepLogs = [];
+  
+  try {
+    stepLogs.push("✅ File upload request received");
+    
+    if (!req.file) {
+      stepLogs.push("❌ No file uploaded");
+      return res.status(400).json({ error: "Please upload an Excel file", logs: stepLogs });
+    }
+    
+    stepLogs.push(`📄 File received: ${req.file.originalname}`);
+    
+    // Read the uploaded Excel file
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    
+    if (!workbook.SheetNames.length) {
+      stepLogs.push("❌ Excel file has no sheets");
+      return res.status(400).json({ error: "Excel file has no sheets", logs: stepLogs });
+    }
+    
+    const sheetName = workbook.SheetNames[0];
+    stepLogs.push(`📊 Processing sheet: ${sheetName}`);
+    
+    const worksheet = workbook.Sheets[sheetName];
+    const uploadedData = XLSX.utils.sheet_to_json(worksheet);
+    
+    if (!uploadedData.length) {
+      stepLogs.push("❌ No data found in Excel file");
+      return res.status(400).json({ error: "No data found in Excel file", logs: stepLogs });
+    }
+    
+    stepLogs.push(`✅ Found ${uploadedData.length} records in the Excel file`);
+    
+    // Map the fields from uploaded format to our database format
+    const processedEntries = [];
+    const skippedEntries = [];
+    const errorEntries = [];
+    
+    // Define field mappings (source field name to target field name)
+    const possibleMappings = {
+      insuranceNumber: ["Alchemy pay number", "InsuranceNumber", "Insurance Number", "ALCHP-INS"],
+      userId: ["user id", "UserId", "User ID", "CROWN"],
+      name: ["name", "Name", "Full Name"],
+      email: ["email", "Email", "Email Address"],
+      mobileNumber: ["mobile number", "Mobile Number", "Number", "Phone", "Contact"],
+      investedAmount: ["Invested amount", "Invested Amount", "Amount", "InvestedAmount"],
+      address: ["address", "Address", "Full Address"]
+    };
+    
+    // Detect which columns are present in the uploaded file
+    const detectedFields = {};
+    const firstRow = uploadedData[0];
+    const columnHeaders = Object.keys(firstRow);
+    
+    stepLogs.push(`📋 Detected columns: ${columnHeaders.join(', ')}`);
+    
+    // Try to match each target field with a column in the file
+    for (const [targetField, possibleNames] of Object.entries(possibleMappings)) {
+      const matchedField = columnHeaders.find(header => 
+        possibleNames.some(name => 
+          header.toLowerCase().includes(name.toLowerCase())
+        )
+      );
+      
+      if (matchedField) {
+        detectedFields[targetField] = matchedField;
+      }
+    }
+    
+    stepLogs.push(`🔄 Field mapping: ${JSON.stringify(detectedFields)}`);
+    
+    // Check if we have the minimum required fields
+    const requiredFields = ['name', 'email', 'insuranceNumber'];
+    const missingRequiredFields = requiredFields.filter(field => !detectedFields[field]);
+    
+    if (missingRequiredFields.length > 0) {
+      stepLogs.push(`❌ Missing required fields: ${missingRequiredFields.join(', ')}`);
+      return res.status(400).json({ 
+        error: `Missing required fields: ${missingRequiredFields.join(', ')}`, 
+        logs: stepLogs 
+      });
+    }
+    
+    // Process each row from the Excel file
+    for (let i = 0; i < uploadedData.length; i++) {
+      const row = uploadedData[i];
+      try {
+        // Extract data using our field mapping
+        const entry = {
+          Name: row[detectedFields.name] || '',
+          Email: row[detectedFields.email] || '',
+          InsuranceNumber: row[detectedFields.insuranceNumber] || '',
+          Address: row[detectedFields.address] || '',
+          Number: row[detectedFields.mobileNumber] || '',
+          Amount: row[detectedFields.investedAmount] ? 
+            parseInt(row[detectedFields.investedAmount].toString().replace(/[^0-9]/g, '')) : 0,
+          UserId: row[detectedFields.userId] || ''
+        };
+        
+        // Validate the minimum required fields
+        if (!entry.Name || !entry.Email || !entry.InsuranceNumber) {
+          skippedEntries.push({
+            rowIndex: i + 1,
+            reason: "Missing required fields",
+            data: entry
+          });
+          continue;
+        }
+        
+        processedEntries.push(entry);
+      } catch (err) {
+        errorEntries.push({
+          rowIndex: i + 1,
+          error: err.message,
+          data: row
+        });
+      }
+    }
+    
+    stepLogs.push(`✅ Processed ${processedEntries.length} valid entries`);
+    if (skippedEntries.length) {
+      stepLogs.push(`⚠️ Skipped ${skippedEntries.length} entries due to missing required fields`);
+    }
+    if (errorEntries.length) {
+      stepLogs.push(`❌ Encountered errors in ${errorEntries.length} entries`);
+    }
+    
+    // Save processed entries to the Excel database file
+    const filePath = path.join(__dirname, "data.xlsx");
+    let existingData = [];
+    let workbookToUpdate;
+    
+    // Check if the database file exists and load it
+    if (fs.existsSync(filePath)) {
+      workbookToUpdate = XLSX.readFile(filePath);
+      const worksheet = workbookToUpdate.Sheets["Sheet1"];
+      existingData = XLSX.utils.sheet_to_json(worksheet);
+      stepLogs.push(`📊 Loaded existing database with ${existingData.length} records`);
+    } else {
+      workbookToUpdate = XLSX.utils.book_new();
+      stepLogs.push(`📊 Creating new database file`);
+    }
+    
+    // Check for duplicates and add new entries
+    const addedEntries = [];
+    const duplicateEntries = [];
+    
+    for (const entry of processedEntries) {
+      const existingEntry = existingData.find(e => e.InsuranceNumber === entry.InsuranceNumber);
+      
+      if (existingEntry) {
+        duplicateEntries.push({
+          insuranceNumber: entry.InsuranceNumber,
+          name: entry.Name
+        });
+      } else {
+        existingData.push(entry);
+        addedEntries.push({
+          insuranceNumber: entry.InsuranceNumber,
+          name: entry.Name
+        });
+      }
+    }
+    
+    stepLogs.push(`✅ Adding ${addedEntries.length} new entries to the database`);
+    if (duplicateEntries.length) {
+      stepLogs.push(`⚠️ Skipped ${duplicateEntries.length} duplicate entries`);
+    }
+    
+    // Write updated data to the Excel file
+    const updatedSheet = XLSX.utils.json_to_sheet(existingData, { 
+      header: ["Name", "Email", "InsuranceNumber", "Address", "Number", "Amount", "UserId"] 
+    });
+    
+    if (workbookToUpdate.SheetNames.includes("Sheet1")) {
+      workbookToUpdate.Sheets["Sheet1"] = updatedSheet;
+    } else {
+      XLSX.utils.book_append_sheet(workbookToUpdate, updatedSheet, "Sheet1");
+    }
+    
+    XLSX.writeFile(workbookToUpdate, filePath);
+    stepLogs.push(`💾 Database updated successfully`);
+    
+    return res.status(200).json({
+      message: "Excel file processed successfully",
+      totalProcessed: processedEntries.length,
+      added: addedEntries.length,
+      duplicates: duplicateEntries.length,
+      skipped: skippedEntries.length,
+      errors: errorEntries.length,
+      addedEntries,
+      duplicateEntries,
+      skippedEntries,
+      errorEntries,
+      logs: stepLogs
+    });
+    
+  } catch (err) {
+    console.error("❌ Error processing Excel upload:", err);
+    stepLogs.push(`❌ Exception: ${err.message}`);
+    return res.status(500).json({ 
+      error: "Failed to process Excel file", 
+      message: err.message,
+      logs: stepLogs 
+    });
+  }
+});
 
 
 // Start Server
