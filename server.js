@@ -371,7 +371,7 @@ app.post("/api/generate-certificate", async (req, res) => {
     const CoveragePeriod = `${monthName} ${dayWithSuffix}, ${year} - ${monthName} ${dayWithSuffix}, ${year}`;
 
     lastPage.drawText(`${insuranceNumber}`, { x: 320, y: 2510, size: 25, font, color: rgb(0, 0, 0) });
-    lastPage.drawText(`: ${name}`, { x: 320, y: 2450, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${name}`, { x: 320, y: 2450, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${number}`, { x: 320, y: 2390, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${email}`, { x: 320, y: 2340, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${address}`, { x: 320, y: 2280, size: 25, font, color: rgb(0, 0, 0) });
