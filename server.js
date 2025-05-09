@@ -7,9 +7,15 @@ const cron = require('node-cron');
 const fetch = require('node-fetch');
 const Stripe = require('stripe')
 const bcrypt = require("bcryptjs");
+const XLSX = require("xlsx");
+const fs = require("fs");
+const path = require("path");
+const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
+
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use("/output", express.static(path.join(__dirname, "output")));
 
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} from Origin: ${req.headers.origin}`);
@@ -242,6 +248,246 @@ cron.schedule('*/5 * * * *', async () => {
     console.error("[CRON] Failed to ping server:", err.message);
   }
 });
+
+
+
+
+// Add new entry to data.xlsx
+app.post("/api/add-entry", async (req, res) => {
+  const { name, email, insuranceNumber, address, number } = req.body;
+
+  try {
+    const filePath = path.join(__dirname, "data.xlsx");
+
+    // Load or create workbook
+    let workbook, worksheet;
+    if (fs.existsSync(filePath)) {
+      workbook = XLSX.readFile(filePath);
+      worksheet = workbook.Sheets["Sheet1"];
+    } else {
+      workbook = XLSX.utils.book_new();
+      worksheet = XLSX.utils.aoa_to_sheet([["Name", "Email", "InsuranceNumber", "Address", "Number"]]);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+    }
+
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    // Check for duplicate insurance number
+    const exists = data.find(d => d.InsuranceNumber === insuranceNumber);
+    if (exists) {
+      return res.status(409).json({ error: "Entry with this Insurance Number already exists." });
+    }
+
+    // Append new row
+    data.push({ Name: name, Email: email, InsuranceNumber: insuranceNumber, Address: address, Number: number });
+    const newSheet = XLSX.utils.json_to_sheet(data, { header: ["Name", "Email", "InsuranceNumber", "Address", "Number"] });
+    workbook.Sheets["Sheet1"] = newSheet;
+    XLSX.writeFile(workbook, filePath);
+
+    res.status(200).json({ message: "Entry added successfully." });
+  } catch (err) {
+    console.error("Error adding entry:", err);
+    res.status(500).json({ error: "Failed to add entry." });
+  }
+});
+
+app.post("/api/generate-certificate", async (req, res) => {
+  const { insuranceNumber } = req.body;
+  const stepLogs = [];
+
+  try {
+    stepLogs.push("✅ Request received.");
+
+    if (!insuranceNumber) {
+      stepLogs.push("❌ Insurance number missing.");
+      return res.status(400).json({ error: "Insurance number is required.", logs: stepLogs });
+    }
+
+    stepLogs.push("🔍 Insurance number provided: " + insuranceNumber);
+
+    const filePath = path.join(__dirname, "data.xlsx");
+    if (!fs.existsSync(filePath)) {
+      stepLogs.push("❌ Excel file not found.");
+      return res.status(404).json({ error: "Data sheet not found.", logs: stepLogs });
+    }
+
+    stepLogs.push("📄 Excel file located, reading contents...");
+    const workbook = XLSX.readFile(filePath);
+    const worksheet = workbook.Sheets["Sheet1"];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    stepLogs.push("📊 Excel data parsed. Searching for matching record...");
+    const match = data.find(entry => entry.InsuranceNumber === insuranceNumber);
+
+    if (!match) {
+      stepLogs.push("❌ No matching insurance number found.");
+      return res.status(403).json({ error: "No matching insurance record found.", logs: stepLogs });
+    }
+
+    const { Name: name, Email: email, Address: address, Number: number } = match;
+    stepLogs.push(`✅ Record found for: ${name}`);
+
+    // Load and modify PDF
+    const templatePath = path.join(__dirname, "certificate_template.pdf");
+    if (!fs.existsSync(templatePath)) {
+      stepLogs.push("❌ PDF template not found.");
+      return res.status(500).json({ error: "PDF template missing.", logs: stepLogs });
+    }
+
+    stepLogs.push("📄 PDF template found. Loading...");
+    const templateBytes = fs.readFileSync(templatePath);
+    const pdfDoc = await PDFDocument.load(templateBytes);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+    const pages = pdfDoc.getPages();
+    if (!pages.length) {
+      stepLogs.push("❌ PDF has no pages.");
+      return res.status(500).json({ error: "PDF template is empty.", logs: stepLogs });
+    }
+
+    const lastPage = pages[pages.length - 1];
+    stepLogs.push("🖋️ Drawing user info on the certificate...");
+
+
+    // calculate the coverage period for one year from now so it will valid for one year from issue date
+    const today = new Date();
+    const yearFromNow = new Date(today.setFullYear(today.getFullYear() + 1));
+    const month = yearFromNow.toLocaleString("default", { month: "long" });
+    const year = yearFromNow.getFullYear();
+    const day = yearFromNow.getDate();
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const monthIndex = yearFromNow.getMonth();
+    const monthName = monthNames[monthIndex];
+    const daySuffix = (day) => {
+      if (day > 3 && day < 21) return 'th';
+      switch (day % 10) {
+        case 1: return "st";
+        case 2: return "nd";
+        case 3: return "rd";
+        default: return "th";
+      }
+    };
+    const dayWithSuffix = `${day}${daySuffix(day)}`;
+    const CoveragePeriod = `${monthName} ${dayWithSuffix}, ${year} - ${monthName} ${dayWithSuffix}, ${year}`;
+
+    lastPage.drawText(`${insuranceNumber}`, { x: 320, y: 2510, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`: ${name}`, { x: 320, y: 2450, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${number}`, { x: 320, y: 2390, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${email}`, { x: 320, y: 2340, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${address}`, { x: 320, y: 2280, size: 25, font, color: rgb(0, 0, 0) });
+
+    // lastPage.drawText(`${number}`, { x: 1200, y: 2540, size: 50, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${CoveragePeriod}`, { x: 330, y: 1740, size: 25, font, color: rgb(0, 0, 0) });
+
+    stepLogs.push("✅ Certificate data injected. Saving PDF in memory...");
+    const pdfBytes = await pdfDoc.save();
+
+    stepLogs.push("📤 Sending generated certificate as response...");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=CERTIFICATE_${insuranceNumber}.pdf`);
+    res.send(Buffer.from(pdfBytes));
+
+  } catch (err) {
+    console.error("❌ Error generating certificate:", err);
+    stepLogs.push("❌ Exception thrown: " + err.message);
+    return res.status(500).json({ error: "Internal Server Error", logs: stepLogs });
+  }
+});
+
+
+app.get("/api/entries", (req, res) => {
+  try {
+    const filePath = path.join(__dirname, "data.xlsx");
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "Excel file not found." });
+    }
+
+    const workbook = XLSX.readFile(filePath);
+    const worksheet = workbook.Sheets["Sheet1"];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    res.status(200).json({ entries: data });
+  } catch (err) {
+    console.error("❌ Error fetching entries:", err);
+    res.status(500).json({ error: "Failed to get entries." });
+  }
+});
+
+// make a route that returns the certificate_template.pdf that is in root directory
+app.get("/api/template", (req, res) => {
+  const filePath = path.join(__dirname, "certificate_template.pdf");
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Template file not found." });
+  }
+  res.download(filePath, "certificate_template.pdf", (err) => {
+    if (err) {
+      console.error("❌ Error downloading template:", err);
+      res.status(500).json({ error: "Failed to download template." });
+    }
+  }
+  );});
+
+
+app.put("/api/edit-entry/:insuranceNumber", (req, res) => {
+  const insuranceNumber = req.params.insuranceNumber;
+  const { name, email, address, number } = req.body;
+
+  try {
+    const filePath = path.join(__dirname, "data.xlsx");
+    const workbook = XLSX.readFile(filePath);
+    const worksheet = workbook.Sheets["Sheet1"];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    const index = data.findIndex(entry => entry.InsuranceNumber === insuranceNumber);
+    if (index === -1) {
+      return res.status(404).json({ error: "Entry not found." });
+    }
+
+    data[index] = {
+      Name: name,
+      Email: email,
+      InsuranceNumber: insuranceNumber,
+      Address: address,
+      Number: number
+    };
+
+    const updatedSheet = XLSX.utils.json_to_sheet(data, { header: ["Name", "Email", "InsuranceNumber", "Address", "Number"] });
+    workbook.Sheets["Sheet1"] = updatedSheet;
+    XLSX.writeFile(workbook, filePath);
+
+    res.status(200).json({ message: "Entry updated successfully." });
+  } catch (err) {
+    console.error("❌ Error updating entry:", err);
+    res.status(500).json({ error: "Failed to update entry." });
+  }
+});
+
+app.delete("/api/delete-entry/:insuranceNumber", (req, res) => {
+  const insuranceNumber = req.params.insuranceNumber;
+
+  try {
+    const filePath = path.join(__dirname, "data.xlsx");
+    const workbook = XLSX.readFile(filePath);
+    const worksheet = workbook.Sheets["Sheet1"];
+    let data = XLSX.utils.sheet_to_json(worksheet);
+
+    const newData = data.filter(entry => entry.InsuranceNumber !== insuranceNumber);
+
+    if (newData.length === data.length) {
+      return res.status(404).json({ error: "Entry not found to delete." });
+    }
+
+    const newSheet = XLSX.utils.json_to_sheet(newData, { header: ["Name", "Email", "InsuranceNumber", "Address", "Number"] });
+    workbook.Sheets["Sheet1"] = newSheet;
+    XLSX.writeFile(workbook, filePath);
+
+    res.status(200).json({ message: "Entry deleted successfully." });
+  } catch (err) {
+    console.error("❌ Error deleting entry:", err);
+    res.status(500).json({ error: "Failed to delete entry." });
+  }
+});
+
 
 
 // Start Server
