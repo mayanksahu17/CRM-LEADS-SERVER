@@ -387,14 +387,13 @@ app.post("/api/generate-certificate", async (req, res) => {
     const lastPage = pages[pages.length - 1];
     stepLogs.push("🖋️ Drawing user info on the certificate...");
 
-    // calculate the coverage period for one year from now so it will valid for one year from issue date
     const today = new Date();
-    const yearFromNow = new Date(today.setFullYear(today.getFullYear() + 1));
-    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const monthIndex = yearFromNow.getMonth();
-    const monthName = monthNames[monthIndex];
-    const day = yearFromNow.getDate();
-    const year = yearFromNow.getFullYear();
+    const oneYearLater = new Date();
+    oneYearLater.setFullYear(today.getFullYear() + 1);
+    
+    const monthNames = ["January", "February", "March", "April", "May", "June",
+                        "July", "August", "September", "October", "November", "December"];
+    
     const daySuffix = (day) => {
       if (day > 3 && day < 21) return 'th';
       switch (day % 10) {
@@ -404,9 +403,18 @@ app.post("/api/generate-certificate", async (req, res) => {
         default: return "th";
       }
     };
-    const dayWithSuffix = `${day}${daySuffix(day)}`;
-    const CoveragePeriod = `${monthName} ${dayWithSuffix}, ${year} - ${monthName} ${dayWithSuffix}, ${year}`;
-
+    
+    const formatDate = (date) => {
+      const day = date.getDate();
+      const monthName = monthNames[date.getMonth()];
+      const year = date.getFullYear();
+      return `${monthName} ${day}${daySuffix(day)}, ${year}`;
+    };
+    
+    const coverageStart = formatDate(today);
+    const coverageEnd = formatDate(oneYearLater);
+    
+    const CoveragePeriod = `${coverageStart} - ${coverageEnd}`;
     lastPage.drawText(`${insuranceNumber}`, { x: 320, y: 2510, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${name}`, { x: 320, y: 2450, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${number}`, { x: 320, y: 2390, size: 25, font, color: rgb(0, 0, 0) });
