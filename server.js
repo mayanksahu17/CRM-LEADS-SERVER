@@ -423,7 +423,7 @@ app.post("/api/generate-certificate", async (req, res) => {
 
     // Display the amount with proper formatting
     const formattedAmount = amount ? `$${amount}` : "$0";
-    lastPage.drawText(`Invested Amount:           ${formattedAmount}`, { x: 75, y: 1775, size: 23, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`           ${formattedAmount}`, { x: 75, y: 1775, size: 23, font, color: rgb(0, 0, 0) });
 
     lastPage.drawText(`${CoveragePeriod}`, { x: 330, y: 1740, size: 25, font, color: rgb(0, 0, 0) });
 
