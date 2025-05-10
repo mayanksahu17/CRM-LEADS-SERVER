@@ -423,9 +423,9 @@ app.post("/api/generate-certificate", async (req, res) => {
 
     // Display the amount with proper formatting
     const formattedAmount = amount ? `$${amount}` : "$0";
-    lastPage.drawText(`           ${formattedAmount}`, { x: 75, y: 1775, size: 23, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${formattedAmount}`, { x: 350, y: 1720, size: 23, font, color: rgb(0, 0, 0) });
 
-    lastPage.drawText(`${CoveragePeriod}`, { x: 330, y: 1740, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${CoveragePeriod}`, { x: 350, y: 1680, size: 23, font, color: rgb(0, 0, 0) });
 
     stepLogs.push("✅ Certificate data injected. Saving PDF in memory...");
     const pdfBytes = await pdfDoc.save();
