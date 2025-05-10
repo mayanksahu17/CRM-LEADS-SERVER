@@ -415,9 +415,9 @@ app.post("/api/generate-certificate", async (req, res) => {
     const coverageEnd = formatDate(oneYearLater);
     
     const CoveragePeriod = `${coverageStart} - ${coverageEnd}`;
-    lastPage.drawText(`${insuranceNumber}`, { x: 320, y: 2520, size: 25, font, color: rgb(0, 0, 0) });
-    lastPage.drawText(`${name}`, { x: 320, y: 2460, size: 25, font, color: rgb(0, 0, 0) });
-    lastPage.drawText(`${"+" + number}`, { x: 320, y: 2400, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${insuranceNumber}`, { x: 320, y: 2540, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${name}`, { x: 320, y: 2490, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${"+" + number}`, { x: 320, y: 2420, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${email}`, { x: 320, y: 2340, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${address}`, { x: 320, y: 2280, size: 18, font, color: rgb(0, 0, 0) });
 
