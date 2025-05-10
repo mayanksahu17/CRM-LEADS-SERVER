@@ -417,14 +417,14 @@ app.post("/api/generate-certificate", async (req, res) => {
     const CoveragePeriod = `${coverageStart} - ${coverageEnd}`;
     lastPage.drawText(`${insuranceNumber}`, { x: 320, y: 2510, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${name}`, { x: 320, y: 2450, size: 25, font, color: rgb(0, 0, 0) });
-    lastPage.drawText(`${number}`, { x: 320, y: 2390, size: 25, font, color: rgb(0, 0, 0) });
+    lastPage.drawText(`${"+" + number}`, { x: 320, y: 2390, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${email}`, { x: 320, y: 2340, size: 25, font, color: rgb(0, 0, 0) });
     lastPage.drawText(`${address}`, { x: 320, y: 2280, size: 18, font, color: rgb(0, 0, 0) });
 
     // Display the amount with proper formatting
-    const formattedAmount = amount ? `$${amount}` : "$0";
+    const formattedAmount = amount ? `$${Number(amount).toLocaleString('en-US')}` : "$0";
     lastPage.drawText(`${formattedAmount}`, { x: 350, y: 1720, size: 23, font, color: rgb(0, 0, 0) });
-
+    
     lastPage.drawText(`${CoveragePeriod}`, { x: 350, y: 1680, size: 23, font, color: rgb(0, 0, 0) });
 
     stepLogs.push("✅ Certificate data injected. Saving PDF in memory...");
